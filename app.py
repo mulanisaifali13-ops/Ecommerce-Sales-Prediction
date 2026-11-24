@@ -3,6 +3,10 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder
+from xgboost import XGBRegressor
 
 st.set_page_config(page_title="E-Commerce Sales Dashboard", page_icon="🛒", layout="wide")
 
@@ -19,9 +23,26 @@ def load_data():
     return df
 
 
+def train_model(df):
+    d = df[~df["is_outlier"]]
+    agg = (d.groupby(["Year", "Month", "Category", "PaymentMode", "State"], as_index=False)
+             .agg(Quantity=("Quantity", "sum"), Sales=("Amount", "sum")))
+    X = agg[["Year", "Month", "Quantity", "Category", "PaymentMode", "State"]]
+    pre = ColumnTransformer([("cat", OneHotEncoder(handle_unknown="ignore"),
+                              ["Category", "PaymentMode", "State"])], remainder="passthrough")
+    m = Pipeline([("pre", pre),
+                  ("xgb", XGBRegressor(n_estimators=300, learning_rate=0.05, max_depth=3,
+                                       min_child_weight=5, subsample=0.9,
+                                       colsample_bytree=0.9, random_state=42))])
+    return m.fit(X, agg["Sales"])
+
+
 @st.cache_resource
 def load_model():
-    return joblib.load("sales_model.pkl")
+    try:
+        return joblib.load("sales_model.pkl")
+    except Exception:
+        return train_model(load_data())
 
 
 df = load_data()
